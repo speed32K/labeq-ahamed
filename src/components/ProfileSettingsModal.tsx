@@ -15,7 +15,9 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { User } from 'firebase/auth';
+import type { UseAppLockResult } from '../hooks/useAppLock';
 import { formatRelativeTime } from '../lib/firestoreNotifications';
+import { AppLockSettingsCard } from './AppLockSettingsCard';
 import {
   ANIMATION_PRESETS,
   canApproveSubKoRequest,
@@ -45,6 +47,8 @@ interface ProfileSettingsModalProps {
   onSubmitSubKoVerification: (gmailAddress: string) => { ok: boolean; error?: string };
   onReviewSubKoRequest: (requestId: string, decision: 'approved' | 'declined') => void;
   onCancelSubKoRequest: (requestId: string) => void;
+  appLock: UseAppLockResult;
+  onStatusToast?: (message: string) => void;
 }
 
 function ProjectAnimationPreview({
@@ -145,6 +149,8 @@ export function ProfileSettingsModal({
   onSubmitSubKoVerification,
   onReviewSubKoRequest,
   onCancelSubKoRequest,
+  appLock,
+  onStatusToast,
 }: ProfileSettingsModalProps) {
   const [activeTab, setActiveTab] = useState<ProfileModalTab>(initialTab);
   const [selectedPreset, setSelectedPreset] = useState<AnimationPreset>(
@@ -430,8 +436,14 @@ export function ProfileSettingsModal({
               </section>
             </>
           ) : (
-            /* Settings Tab: Step 2 - Adding a Sub-KO & Primary Owner Approval Queue */
+            /* Settings Tab: App Lock with Biometric Auth & Sub-KO Approval Queue */
             <>
+              <AppLockSettingsCard
+                user={user}
+                appLock={appLock}
+                onStatusToast={onStatusToast}
+              />
+
               <section className="rounded-lg border border-slate-200 bg-slate-50/60 p-4 flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <h3 className="text-sm font-semibold text-slate-900">

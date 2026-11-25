@@ -15,6 +15,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { AppLockOverlay } from './components/AppLockOverlay';
 import { BalanceStrip } from './components/BalanceStrip';
 import { CanvasBoard } from './components/CanvasBoard';
 import { ConfirmDialog, type ConfirmDialogState } from './components/ConfirmDialog';
@@ -28,6 +29,7 @@ import { ProfileSettingsModal } from './components/ProfileSettingsModal';
 import { RemoteSyncBanner } from './components/RemoteSyncBanner';
 import { TopBar, type WorkspaceView } from './components/TopBar';
 import { useAuth } from './contexts/AuthContext';
+import { useAppLock } from './hooks/useAppLock';
 import { broadcastLocalEntrySync, subscribeToCrossTabEntrySync } from './lib/crossTabSync';
 import { createInitialSeedState, GROUPS } from './data/groups';
 import {
@@ -188,6 +190,7 @@ export default function App() {
     signOutUser,
     clearAuthError,
   } = useAuth();
+  const appLock = useAppLock();
   const bypassHomeGate = useMemo(() => {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).get('autostart') === '1';
@@ -1206,6 +1209,13 @@ export default function App() {
           onClearError={clearAuthError}
         />
         <OfflineIndicator />
+        <AppLockOverlay
+          isLocked={appLock.isLocked}
+          settings={appLock.settings}
+          biometricSupported={appLock.biometricSupported}
+          onUnlockBiometric={appLock.unlockWithBiometric}
+          onUnlockPasscode={appLock.unlockWithPasscode}
+        />
       </>
     );
   }
@@ -1469,6 +1479,8 @@ export default function App() {
         onSubmitSubKoVerification={handleSubmitSubKoVerification}
         onReviewSubKoRequest={handleReviewSubKoRequest}
         onCancelSubKoRequest={handleCancelSubKoRequest}
+        appLock={appLock}
+        onStatusToast={showToast}
       />
 
       <ConfirmDialog
@@ -1477,6 +1489,14 @@ export default function App() {
       />
 
       <OfflineIndicator />
+
+      <AppLockOverlay
+        isLocked={appLock.isLocked}
+        settings={appLock.settings}
+        biometricSupported={appLock.biometricSupported}
+        onUnlockBiometric={appLock.unlockWithBiometric}
+        onUnlockPasscode={appLock.unlockWithPasscode}
+      />
 
       {toastMessage && (
         <div
