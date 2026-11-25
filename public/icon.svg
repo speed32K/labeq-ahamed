@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Shop Daily Log">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#27735c" />
+      <stop offset="55%" stop-color="#1f5e4b" />
+      <stop offset="100%" stop-color="#123a2e" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="100%" stop-color="#10b981" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <rect x="116" y="96" width="280" height="320" rx="34" fill="#ffffff" />
+  <rect x="156" y="148" width="144" height="24" rx="12" fill="#1f5e4b" />
+  <rect x="156" y="200" width="200" height="18" rx="9" fill="#cbd5e1" />
+  <rect x="156" y="242" width="164" height="18" rx="9" fill="#cbd5e1" />
+  <rect x="156" y="284" width="120" height="18" rx="9" fill="#cbd5e1" />
+  <rect x="156" y="336" width="200" height="36" rx="14" fill="url(#accent)" />
+  <circle cx="332" cy="160" r="18" fill="#10b981" />
+</svg>

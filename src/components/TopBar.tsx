@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, Download, LogIn, LogOut, Upload, UserCircle } from 'lucide-react';
 import type { User } from 'firebase/auth';
+import { PWAInstallButton } from './PWAInstallButton';
 
 export type WorkspaceView = 'canvas' | 'table';
 
@@ -123,8 +124,9 @@ export function TopBar({
           }}
         />
 
-        {/* Zone 3: Notifications + Profile Icon + Account Action + Primary CTA */}
+        {/* Zone 3: Install App + Notifications + Profile Icon + Account Action + Primary CTA */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <PWAInstallButton variant="light" />
           {notificationSlot}
 
           <button
@@ -176,7 +178,7 @@ export function TopBar({
                 className="inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-2 rounded-lg text-[11px] sm:text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1f5e4b]"
               >
                 <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
-                <span className="hidden min-[380px]:inline">
+                <span className="hidden sm:inline">
                   {signingIn ? 'Signing in...' : 'Sign in'}
                 </span>
               </button>

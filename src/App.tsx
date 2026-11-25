@@ -22,6 +22,7 @@ import { EntryComposer } from './components/EntryComposer';
 import { LandingHomePage } from './components/LandingHomePage';
 import { LedgerTable } from './components/LedgerTable';
 import { NotificationCenter } from './components/NotificationCenter';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { OpeningBalanceModal } from './components/OpeningBalanceModal';
 import { ProfileSettingsModal } from './components/ProfileSettingsModal';
 import { RemoteSyncBanner } from './components/RemoteSyncBanner';
@@ -1195,14 +1196,17 @@ export default function App() {
 
   if (!user && !bypassHomeGate) {
     return (
-      <LandingHomePage
-        signingIn={signingIn}
-        verifyingAccess={verifyingAccess || !authReady}
-        authError={authError}
-        onSignIn={() => void signInWithGoogle()}
-        onEmailLogin={(email) => void signInWithEmail(email)}
-        onClearError={clearAuthError}
-      />
+      <>
+        <LandingHomePage
+          signingIn={signingIn}
+          verifyingAccess={verifyingAccess || !authReady}
+          authError={authError}
+          onSignIn={() => void signInWithGoogle()}
+          onEmailLogin={(email) => void signInWithEmail(email)}
+          onClearError={clearAuthError}
+        />
+        <OfflineIndicator />
+      </>
     );
   }
 
@@ -1471,6 +1475,8 @@ export default function App() {
         dialog={confirmDialog}
         onClose={() => setConfirmDialog(null)}
       />
+
+      <OfflineIndicator />
 
       {toastMessage && (
         <div

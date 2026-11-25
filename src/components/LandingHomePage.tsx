@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { AlertCircle, Loader2, Mail, ShieldCheck, X } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { validateLoginEmailInput } from '../lib/ownership';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface LandingHomePageProps {
   signingIn: boolean;
@@ -231,13 +232,16 @@ export function LandingHomePage({
       <AnimatedLedgerBackdrop />
 
       {/* Minimal single-row top header */}
-      <header className="relative z-10 w-full max-w-6xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between gap-6">
+      <header className="relative z-10 w-full max-w-6xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between gap-4">
         <span className="font-semibold text-base sm:text-lg tracking-tight text-white whitespace-nowrap shrink-0">
           Shop Daily Log
         </span>
-        <span className="text-xs sm:text-sm text-slate-300 whitespace-nowrap truncate">
-          CSP &amp; Daily Cash Ledger
-        </span>
+        <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+          <span className="hidden sm:inline text-xs sm:text-sm text-slate-300 whitespace-nowrap">
+            CSP &amp; Daily Cash Ledger
+          </span>
+          <PWAInstallButton variant="dark" />
+        </div>
       </header>
 
       {/* Main focal area */}
