@@ -1,0 +1,695 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1 / Safety Net: Global default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Hardened Global Primitives
+    // -------------------------------------------------------------------------
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidGmailAddress(email) {
+      return email is string
+        && email.size() >= 11
+        && email.size() <= 254
+        && email.matches('^[a-zA-Z0-9._%+\\-]+@gmail\\.com$');
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && isValidGmailAddress(request.auth.token.email);
+    }
+
+    function isVerifiedOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isPrimaryOwnerKO() {
+      return isVerifiedUser()
+        && request.auth.token.email == 'amdsolutionsqdn@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string
+        && id.size() >= 1
+        && id.size() <= 128
+        && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidDeviceId(id) {
+      return id is string
+        && id.size() >= 1
+        && id.size() <= 64
+        && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidDateKey(dateStr) {
+      return dateStr is string
+        && dateStr.size() == 10
+        && dateStr.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    function isValidGroupName(groupName) {
+      return groupName is string
+        && groupName.size() >= 1
+        && groupName.size() <= 60
+        && groupName in [
+          'SBI CSP',
+          'AIRTEL CSP',
+          'INSTANTPAY',
+          'SHOP',
+          'Kerala House',
+          'Tehrik e Jadeed',
+          'EXPENSE',
+          'FINO'
+        ];
+    }
+
+    function isValidPaymentMode(mode) {
+      return mode is string
+        && mode.size() >= 1
+        && mode.size() <= 20
+        && mode in ['Cash', 'ONLINE', 'CREDIT'];
+    }
+
+    function isValidNotificationAction(action) {
+      return action is string
+        && action.size() >= 1
+        && action.size() <= 40
+        && action in [
+          'entry_added',
+          'entry_updated',
+          'entry_deleted',
+          'entries_reordered',
+          'opening_saved',
+          'opening_reset',
+          'ledger_imported',
+          'ledger_cleared',
+          'project_updated',
+          'subko_requested',
+          'subko_approved',
+          'subko_declined'
+        ];
+    }
+
+    function isValidAnimationPreset(preset) {
+      return preset is string
+        && preset.size() >= 1
+        && preset.size() <= 40
+        && preset in ['none', 'pulse_orbit', 'ledger_flow', 'emerald_wave'];
+    }
+
+    function isValidSubKoStatus(status) {
+      return status is string
+        && status.size() >= 1
+        && status.size() <= 20
+        && status in ['pending', 'approved', 'declined'];
+    }
+
+    function isBoundedNumber(val) {
+      return (val is int || val is float) && val >= -1000000000 && val <= 1000000000;
+    }
+
+    function isNonNegativeNumber(val) {
+      return (val is int || val is float) && val >= 0 && val <= 1000000000;
+    }
+
+    function isBoundedEpochMs(val) {
+      return (val is int || val is float) && val >= 0 && val <= 9999999999999;
+    }
+
+    function isValidCustomDeltasMap(deltas) {
+      return deltas is map
+        && deltas.keys().hasAll(['ko', 'cash', 'fino', 'airtel', 'bank', 'credit'])
+        && deltas.keys().hasOnly(['ko', 'cash', 'fino', 'airtel', 'bank', 'credit'])
+        && isBoundedNumber(deltas.ko)
+        && isBoundedNumber(deltas.cash)
+        && isBoundedNumber(deltas.fino)
+        && isBoundedNumber(deltas.airtel)
+        && isBoundedNumber(deltas.bank)
+        && isBoundedNumber(deltas.credit);
+    }
+
+    function parentUserExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId));
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprints (Anti-Update-Gap)
+    // -------------------------------------------------------------------------
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && isValidGmailAddress(data.email)
+        && data.email == request.auth.token.email
+        && data.displayName is string
+        && data.displayName.size() <= 120
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidLedgerEntry(data, userId, entryId) {
+      return data.keys().hasAll([
+          'id',
+          'ownerId',
+          'date',
+          'orderIndex',
+          'type',
+          'serviceType',
+          'remarks',
+          'paymentMode',
+          'debit',
+          'credit',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'ownerId',
+          'date',
+          'orderIndex',
+          'type',
+          'serviceType',
+          'remarks',
+          'paymentMode',
+          'debit',
+          'credit',
+          'customDeltas',
+          'lastModifiedByDeviceId',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == entryId
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && isValidDateKey(data.date)
+        && (data.orderIndex is int || data.orderIndex is float)
+        && data.orderIndex >= 0
+        && data.orderIndex <= 100000
+        && isValidGroupName(data.type)
+        && data.serviceType is string
+        && data.serviceType.size() >= 1
+        && data.serviceType.size() <= 120
+        && data.remarks is string
+        && data.remarks.size() <= 300
+        && isValidPaymentMode(data.paymentMode)
+        && isNonNegativeNumber(data.debit)
+        && isNonNegativeNumber(data.credit)
+        && (
+          !('customDeltas' in data)
+          || data.customDeltas == null
+          || isValidCustomDeltasMap(data.customDeltas)
+        )
+        && (
+          !('lastModifiedByDeviceId' in data)
+          || data.lastModifiedByDeviceId == null
+          || isValidDeviceId(data.lastModifiedByDeviceId)
+        )
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidOpeningOverride(data, userId, dateKey) {
+      return data.keys().hasAll([
+          'date',
+          'ownerId',
+          'ko',
+          'cash',
+          'fino',
+          'airtel',
+          'bank',
+          'credit',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'date',
+          'ownerId',
+          'ko',
+          'cash',
+          'fino',
+          'airtel',
+          'bank',
+          'credit',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidDateKey(data.date)
+        && data.date == dateKey
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && isBoundedNumber(data.ko)
+        && isBoundedNumber(data.cash)
+        && isBoundedNumber(data.fino)
+        && isBoundedNumber(data.airtel)
+        && isBoundedNumber(data.bank)
+        && isBoundedNumber(data.credit)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidNotificationReadState(data, userId, stateId) {
+      return data.keys().hasAll(['id', 'ownerId', 'lastReadAtMs', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'lastReadAtMs', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == stateId
+        && stateId == 'default'
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.ownerId == request.auth.uid
+        && isBoundedEpochMs(data.lastReadAtMs)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidActivityNotification(data, notificationId) {
+      return data.keys().hasAll([
+          'id',
+          'actorId',
+          'actorName',
+          'deviceId',
+          'audience',
+          'action',
+          'summary',
+          'targetDate',
+          'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'actorId',
+          'actorName',
+          'deviceId',
+          'audience',
+          'action',
+          'summary',
+          'targetDate',
+          'createdAt'
+        ])
+        && isValidId(data.id)
+        && data.id == notificationId
+        && isValidId(data.actorId)
+        && data.actorId == request.auth.uid
+        && data.actorName is string
+        && data.actorName.size() >= 1
+        && data.actorName.size() <= 80
+        && isValidDeviceId(data.deviceId)
+        && data.audience is string
+        && data.audience.size() >= 1
+        && data.audience.size() <= 32
+        && data.audience == 'all_logged_in'
+        && isValidNotificationAction(data.action)
+        && data.summary is string
+        && data.summary.size() >= 1
+        && data.summary.size() <= 200
+        && isValidDateKey(data.targetDate)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidProjectConfig(data, projectId) {
+      return data.keys().hasAll([
+          'id',
+          'primaryOwnerEmail',
+          'animationPreset',
+          'animationTitle',
+          'updatedByUid',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'primaryOwnerEmail',
+          'animationPreset',
+          'animationTitle',
+          'updatedByUid',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == projectId
+        && projectId == 'default'
+        && data.primaryOwnerEmail is string
+        && data.primaryOwnerEmail.size() >= 11
+        && data.primaryOwnerEmail.size() <= 254
+        && data.primaryOwnerEmail == 'amdsolutionsqdn@gmail.com'
+        && isValidAnimationPreset(data.animationPreset)
+        && data.animationTitle is string
+        && data.animationTitle.size() <= 80
+        && isValidId(data.updatedByUid)
+        && data.updatedByUid == request.auth.uid
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSubKoRequest(data, requestId) {
+      return data.keys().hasAll([
+          'id',
+          'subKoEmail',
+          'requestedByUid',
+          'requestedByName',
+          'primaryOwnerEmail',
+          'status',
+          'reviewedByUid',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'subKoEmail',
+          'requestedByUid',
+          'requestedByName',
+          'primaryOwnerEmail',
+          'status',
+          'reviewedByUid',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == requestId
+        && isValidGmailAddress(data.subKoEmail)
+        && isValidId(data.requestedByUid)
+        && data.requestedByName is string
+        && data.requestedByName.size() >= 1
+        && data.requestedByName.size() <= 80
+        && data.primaryOwnerEmail is string
+        && data.primaryOwnerEmail.size() >= 11
+        && data.primaryOwnerEmail.size() <= 254
+        && data.primaryOwnerEmail == 'amdsolutionsqdn@gmail.com'
+        && isValidSubKoStatus(data.status)
+        && (data.reviewedByUid == null || isValidId(data.reviewedByUid))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Rules
+    // -------------------------------------------------------------------------
+    match /users/{userId} {
+      // PII isolation: strictly owner-only get; never allow listing users
+      allow get: if isVerifiedOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: SyncProfile
+          incoming().diff(existing()).affectedKeys().hasOnly(['email', 'displayName', 'updatedAt'])
+        );
+
+      allow delete: if false;
+
+      // Subcollection: Daily Accounting Ledger Entries
+      match /entries/{entryId} {
+        allow get: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(entryId)
+          && existing().ownerId == request.auth.uid;
+
+        // Secure List Query without get()/exists()
+        allow list: if isVerifiedOwner(userId)
+          && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(entryId)
+          && isValidLedgerEntry(incoming(), userId, entryId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(entryId)
+          && isValidLedgerEntry(incoming(), userId, entryId)
+          && existing().ownerId == request.auth.uid
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            // Action: EditEntry
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'date',
+              'type',
+              'serviceType',
+              'remarks',
+              'paymentMode',
+              'debit',
+              'credit',
+              'customDeltas',
+              'lastModifiedByDeviceId',
+              'updatedAt'
+            ])
+            ||
+            // Action: ReorderEntry
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'orderIndex',
+              'lastModifiedByDeviceId',
+              'updatedAt'
+            ])
+          )
+          && parentUserExists(userId);
+
+        allow delete: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidId(entryId)
+          && existing().ownerId == request.auth.uid
+          && parentUserExists(userId);
+      }
+
+      // Subcollection: Manual Opening Balance Overrides
+      match /openingOverrides/{dateKey} {
+        allow get: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidDateKey(dateKey)
+          && existing().ownerId == request.auth.uid;
+
+        // Secure List Query without get()/exists()
+        allow list: if isVerifiedOwner(userId)
+          && existing().ownerId == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidDateKey(dateKey)
+          && isValidOpeningOverride(incoming(), userId, dateKey)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidDateKey(dateKey)
+          && isValidOpeningOverride(incoming(), userId, dateKey)
+          && existing().ownerId == request.auth.uid
+          && incoming().date == existing().date
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            // Action: UpdateOpeningBalances
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'ko',
+              'cash',
+              'fino',
+              'airtel',
+              'bank',
+              'credit',
+              'updatedAt'
+            ])
+          )
+          && parentUserExists(userId);
+
+        allow delete: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && isValidDateKey(dateKey)
+          && existing().ownerId == request.auth.uid
+          && parentUserExists(userId);
+      }
+
+      // Subcollection: Owner-private Notification Read Cursor
+      match /notificationState/{stateId} {
+        allow get: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && stateId == 'default'
+          && existing().ownerId == request.auth.uid;
+
+        allow list: if false;
+
+        allow create: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && stateId == 'default'
+          && isValidNotificationReadState(incoming(), userId, stateId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerifiedOwner(userId)
+          && isValidId(userId)
+          && stateId == 'default'
+          && isValidNotificationReadState(incoming(), userId, stateId)
+          && existing().ownerId == request.auth.uid
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            // Action: MarkNotificationsRead
+            incoming().diff(existing()).affectedKeys().hasOnly(['lastReadAtMs', 'updatedAt'])
+          )
+          && parentUserExists(userId);
+
+        allow delete: if false;
+      }
+    }
+
+    // Collection: Cross-Device / Cross-Account Live Change Notifications (No PII, Immutable)
+    match /notifications/{notificationId} {
+      allow get: if isVerifiedUser()
+        && isValidId(notificationId)
+        && existing().audience == 'all_logged_in';
+
+      // Secure List Query without get()/exists(): enforces audience scope on resource.data
+      allow list: if isVerifiedUser()
+        && existing().audience == 'all_logged_in';
+
+      allow create: if isVerifiedUser()
+        && isValidId(notificationId)
+        && isValidActivityNotification(incoming(), notificationId)
+        && incoming().createdAt == request.time
+        && parentUserExists(request.auth.uid);
+
+      // Broadcast notifications are strictly append-only to prevent tampering
+      allow update: if false;
+
+      // Only the verified author can delete their own notification
+      allow delete: if isVerifiedUser()
+        && isValidId(notificationId)
+        && existing().actorId == request.auth.uid
+        && parentUserExists(request.auth.uid);
+    }
+
+    // Collection: Project Ownership & Animation Settings (Primary Owner KO is immutable)
+    match /projectConfig/{projectId} {
+      allow get: if isVerifiedUser() && projectId == 'default';
+      allow list: if false;
+
+      allow create: if isVerifiedUser()
+        && projectId == 'default'
+        && isValidProjectConfig(incoming(), projectId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && parentUserExists(request.auth.uid);
+
+      allow update: if isVerifiedUser()
+        && projectId == 'default'
+        && isValidProjectConfig(incoming(), projectId)
+        && incoming().id == existing().id
+        && incoming().primaryOwnerEmail == existing().primaryOwnerEmail
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: UpdateProjectAnimation
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'animationPreset',
+            'animationTitle',
+            'updatedByUid',
+            'updatedAt'
+          ])
+        )
+        && parentUserExists(request.auth.uid);
+
+      allow delete: if false;
+    }
+
+    // Collection: Sub-KO Gmail Verification & Primary Owner (KO) Approval Queue
+    match /subKoRequests/{requestId} {
+      allow get: if isVerifiedUser()
+        && isValidId(requestId)
+        && (
+          isPrimaryOwnerKO()
+          || existing().requestedByUid == request.auth.uid
+          || existing().subKoEmail == request.auth.token.email
+        );
+
+      // Secure List Query without get()/exists(): strictly scoped to Primary Owner KO or requester
+      allow list: if isVerifiedUser()
+        && (
+          (isPrimaryOwnerKO() && existing().primaryOwnerEmail == 'amdsolutionsqdn@gmail.com')
+          || existing().requestedByUid == request.auth.uid
+          || existing().subKoEmail == request.auth.token.email
+        );
+
+      allow create: if isVerifiedUser()
+        && isValidId(requestId)
+        && isValidSubKoRequest(incoming(), requestId)
+        && incoming().requestedByUid == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().reviewedByUid == null
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && parentUserExists(request.auth.uid);
+
+      // Terminal State Locking + Role-Gated Approval: ONLY Project Primary Owner (KO) can approve/decline pending requests
+      allow update: if isPrimaryOwnerKO()
+        && isValidId(requestId)
+        && isValidSubKoRequest(incoming(), requestId)
+        && existing().status == 'pending'
+        && incoming().id == existing().id
+        && incoming().subKoEmail == existing().subKoEmail
+        && incoming().requestedByUid == existing().requestedByUid
+        && incoming().requestedByName == existing().requestedByName
+        && incoming().primaryOwnerEmail == existing().primaryOwnerEmail
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().reviewedByUid == request.auth.uid
+        && incoming().status in ['approved', 'declined']
+        && (
+          // Action: PrimaryOwnerReviewSubKo
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'status',
+            'reviewedByUid',
+            'updatedAt'
+          ])
+        )
+        && parentUserExists(request.auth.uid);
+
+      allow delete: if isVerifiedUser()
+        && isValidId(requestId)
+        && parentUserExists(request.auth.uid)
+        && (
+          isPrimaryOwnerKO()
+          || (existing().requestedByUid == request.auth.uid && existing().status == 'pending')
+        );
+    }
+  }
+}

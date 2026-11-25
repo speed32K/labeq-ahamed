@@ -1,0 +1,8 @@
+{
+  "name": "Shop Daily Log Entries",
+  "description": "Canvas-mode daily accounting ledger and Excel-compatible workbook manager for multi-service shop and CSP operations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

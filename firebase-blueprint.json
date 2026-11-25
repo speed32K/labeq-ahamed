@@ -1,0 +1,513 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private profile document for an authenticated Shop Daily Log owner.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Authentication UID matching the document ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified Gmail address (amdsolutionsqdn@gmail.com or registered Gmail account, PII, owner-only).",
+          "minLength": 11,
+          "maxLength": 254,
+          "pattern": "^[a-zA-Z0-9._%+\\-]+@gmail\\.com$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name shown in the signed-in workspace header.",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the workspace profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the workspace profile was last updated."
+        }
+      },
+      "required": ["uid", "email", "displayName", "createdAt", "updatedAt"]
+    },
+    "LedgerEntry": {
+      "title": "LedgerEntry",
+      "description": "A single daily shop/CSP accounting transaction entry belonging to a user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique entry identifier matching the Firestore document ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owning user.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "date": {
+          "type": "string",
+          "description": "Accounting log date in ISO YYYY-MM-DD format.",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "orderIndex": {
+          "type": "number",
+          "description": "Zero-based ordering position within the day's ledger."
+        },
+        "type": {
+          "type": "string",
+          "description": "Business group category from Txncat.",
+          "minLength": 1,
+          "maxLength": 60,
+          "enum": [
+            "SBI CSP",
+            "AIRTEL CSP",
+            "INSTANTPAY",
+            "SHOP",
+            "Kerala House",
+            "Tehrik e Jadeed",
+            "EXPENSE",
+            "FINO"
+          ]
+        },
+        "serviceType": {
+          "type": "string",
+          "description": "Service name or transaction classification (e.g., AEPS WITHDRAWAL).",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "remarks": {
+          "type": "string",
+          "description": "Optional narration, customer reference, or remarks.",
+          "minLength": 0,
+          "maxLength": 300
+        },
+        "paymentMode": {
+          "type": "string",
+          "description": "Settlement payment mode.",
+          "minLength": 1,
+          "maxLength": 20,
+          "enum": ["Cash", "ONLINE", "CREDIT"]
+        },
+        "debit": {
+          "type": "number",
+          "description": "Debit (Dr / Out) amount in INR."
+        },
+        "credit": {
+          "type": "number",
+          "description": "Credit (Cr / In) amount in INR."
+        },
+        "customDeltas": {
+          "type": "object",
+          "description": "Optional explicit per-wallet delta overrides (ko, cash, fino, airtel, bank, credit)."
+        },
+        "lastModifiedByDeviceId": {
+          "type": "string",
+          "description": "Optional per-session device identifier of the client that created or last updated the entry, enabling real-time remote-device change detection.",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "date",
+        "orderIndex",
+        "type",
+        "serviceType",
+        "remarks",
+        "paymentMode",
+        "debit",
+        "credit",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "OpeningBalanceOverride": {
+      "title": "OpeningBalanceOverride",
+      "description": "Manual opening balance snapshot override for a specific YYYY-MM-DD date.",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "Accounting date in YYYY-MM-DD format matching the document ID.",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owning user.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ko": {
+          "type": "number",
+          "description": "Opening SBI KO Limit balance."
+        },
+        "cash": {
+          "type": "number",
+          "description": "Opening Cash In Hand balance."
+        },
+        "fino": {
+          "type": "number",
+          "description": "Opening Fino Limit balance."
+        },
+        "airtel": {
+          "type": "number",
+          "description": "Opening Airtel Limit balance."
+        },
+        "bank": {
+          "type": "number",
+          "description": "Opening Cash In Bank balance."
+        },
+        "credit": {
+          "type": "number",
+          "description": "Opening Credit balance."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "date",
+        "ownerId",
+        "ko",
+        "cash",
+        "fino",
+        "airtel",
+        "bank",
+        "credit",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "NotificationReadState": {
+      "title": "NotificationReadState",
+      "description": "Owner-private read cursor synchronizing which broadcast notifications the user has read across devices.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "State identifier (fixed as 'default').",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owning user.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "lastReadAtMs": {
+          "type": "number",
+          "description": "Epoch milliseconds of the newest notification marked read by this user."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": ["id", "ownerId", "lastReadAtMs", "createdAt", "updatedAt"]
+    },
+    "ActivityNotification": {
+      "title": "ActivityNotification",
+      "description": "Immutable real-time change broadcast sent to all logged-in devices and accounts whenever any change occurs in the app (contains no PII).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique notification identifier matching the Firestore document ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "actorId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user whose device triggered the change.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "actorName": {
+          "type": "string",
+          "description": "Non-PII display name label of the actor.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "deviceId": {
+          "type": "string",
+          "description": "Per-session device identifier so receiving devices can distinguish remote vs local changes.",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "audience": {
+          "type": "string",
+          "description": "Broadcast scope tag enforced by Firestore security rules.",
+          "minLength": 1,
+          "maxLength": 32,
+          "enum": ["all_logged_in"]
+        },
+        "action": {
+          "type": "string",
+          "description": "Categorized mutation type.",
+          "minLength": 1,
+          "maxLength": 40,
+          "enum": [
+            "entry_added",
+            "entry_updated",
+            "entry_deleted",
+            "entries_reordered",
+            "opening_saved",
+            "opening_reset",
+            "ledger_imported",
+            "ledger_cleared",
+            "project_updated",
+            "subko_requested",
+            "subko_approved",
+            "subko_declined"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "description": "Concise human-readable description of the change.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "targetDate": {
+          "type": "string",
+          "description": "Affected ledger date in ISO YYYY-MM-DD format.",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "actorId",
+        "actorName",
+        "deviceId",
+        "audience",
+        "action",
+        "summary",
+        "targetDate",
+        "createdAt"
+      ]
+    },
+    "ProjectOwnershipConfig": {
+      "title": "ProjectOwnershipConfig",
+      "description": "Project ownership configuration storing the designated Project Primary Owner (KO) and project animation settings.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Configuration document identifier (fixed as 'default').",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "primaryOwnerEmail": {
+          "type": "string",
+          "format": "email",
+          "description": "Designated Project Primary Owner (KO) Gmail address.",
+          "minLength": 11,
+          "maxLength": 254,
+          "enum": ["amdsolutionsqdn@gmail.com"]
+        },
+        "animationPreset": {
+          "type": "string",
+          "description": "Selected project animation preset shown in the profile.",
+          "minLength": 1,
+          "maxLength": 40,
+          "enum": ["none", "pulse_orbit", "ledger_flow", "emerald_wave"]
+        },
+        "animationTitle": {
+          "type": "string",
+          "description": "Optional short caption for the project animation.",
+          "minLength": 0,
+          "maxLength": 80
+        },
+        "updatedByUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user who last updated the project animation.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "primaryOwnerEmail",
+        "animationPreset",
+        "animationTitle",
+        "updatedByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SubKoRequest": {
+      "title": "SubKoRequest",
+      "description": "Gmail verification and approval request for designating a Secondary Owner (Sub-KO), requiring explicit approval from the Project Primary Owner (KO).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique request identifier matching the document ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "subKoEmail": {
+          "type": "string",
+          "format": "email",
+          "description": "Candidate Sub-KO Gmail address submitted via Verify Gmail.",
+          "minLength": 11,
+          "maxLength": 254,
+          "pattern": "^[a-zA-Z0-9._%+\\-]+@gmail\\.com$"
+        },
+        "requestedByUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user initiating the Sub-KO verification request.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "requestedByName": {
+          "type": "string",
+          "description": "Non-PII display label of the requester.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "primaryOwnerEmail": {
+          "type": "string",
+          "format": "email",
+          "description": "Designated Project Primary Owner (KO) required to approve the request.",
+          "minLength": 11,
+          "maxLength": 254,
+          "enum": ["amdsolutionsqdn@gmail.com"]
+        },
+        "status": {
+          "type": "string",
+          "description": "Verification workflow state (pending -> approved | declined, terminal once decided).",
+          "minLength": 1,
+          "maxLength": 20,
+          "enum": ["pending", "approved", "declined"]
+        },
+        "reviewedByUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the Project Primary Owner (KO) who approved or declined the request (null while pending).",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "subKoEmail",
+        "requestedByUid",
+        "requestedByName",
+        "primaryOwnerEmail",
+        "status",
+        "reviewedByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-private user profile and workspace root document."
+    },
+    "/users/{userId}/entries/{entryId}": {
+      "schema": { "$ref": "#/entities/LedgerEntry" },
+      "description": "Daily accounting ledger entries owned by userId, synchronized in real time."
+    },
+    "/users/{userId}/openingOverrides/{dateKey}": {
+      "schema": { "$ref": "#/entities/OpeningBalanceOverride" },
+      "description": "Per-date manual opening balance overrides owned by userId."
+    },
+    "/users/{userId}/notificationState/{stateId}": {
+      "schema": { "$ref": "#/entities/NotificationReadState" },
+      "description": "Owner-private notification read cursor synchronized across all of a user's devices."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/ActivityNotification" },
+      "description": "Immutable cross-device and cross-account activity broadcast feed delivered in real time to all logged-in devices."
+    },
+    "/projectConfig/{projectId}": {
+      "schema": { "$ref": "#/entities/ProjectOwnershipConfig" },
+      "description": "Project ownership settings storing the immutable Project Primary Owner (KO) and project animation configuration."
+    },
+    "/subKoRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/SubKoRequest" },
+      "description": "Gmail verification requests for Secondary Owner (Sub-KO) roles pending explicit Primary Owner (KO) approval."
+    }
+  }
+}

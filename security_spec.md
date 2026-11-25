@@ -1,0 +1,23 @@
+# Shop Daily Log — Firestore Security Specification
+
+## 1. Data Invariants
+1. **Strict Multi-Tenant Ownership & Gmail-Only Gate**: Every document under `/users/{userId}`, `/users/{userId}/entries/{entryId}`, `/users/{userId}/openingOverrides/{dateKey}`, and `/users/{userId}/notificationState/{stateId}` is strictly private to the verified Gmail owner (`request.auth.uid == userId && request.auth.token.email_verified == true && isValidGmailAddress(request.auth.token.email)`). Non-Gmail Google Workspace/custom domains are rejected both at login and in Firestore rules.
+2. **Parent Existence (Master Gate)**: No `entries`, `openingOverrides`, `notificationState`, `notifications`, `projectConfig`, or `subKoRequests` document may be created or mutated unless the acting user's `/users/{uid}` document exists.
+3. **Immutable Primary Owner (KO) & Creation Metadata**: `primaryOwnerEmail` (`amdsolutionsqdn@gmail.com`), `uid` / `ownerId`, `actorId`, `requestedByUid`, `subKoEmail`, `id`, and `createdAt` can never be mutated after creation. Broadcast documents in `/notifications/{notificationId}` are strictly append-only (`allow update: if false;`) and contain zero PII.
+4. **Role-Enforced Sub-KO Approval & Terminal State Locking**: Every `SubKoRequest` MUST be created with `status == 'pending'` and `reviewedByUid == null`. Only the verified Project Primary Owner (KO) (`request.auth.token.email == 'amdsolutionsqdn@gmail.com' && request.auth.token.email_verified == true`) may transition `status` from `'pending'` to `'approved'` or `'declined'`. Once `'approved'` or `'declined'`, the request is terminally locked against further updates.
+5. **Server Timestamp Integrity & Bounded Schema**: `createdAt == request.time` on creation; `updatedAt == request.time` on creation/update; all strings enforce explicit `.size()` caps, IDs match `^[a-zA-Z0-9_\-]+$`, all user & Sub-KO emails match `^[a-zA-Z0-9._%+\-]+@gmail\.com$`, and shadow fields are blocked via `hasAll` / `hasOnly` / `affectedKeys().hasOnly`.
+6. **Zero Blanket List Reads**: `/users`, `/projectConfig`, and `/notificationState` are never listable; `/subKoRequests` `list` strictly restricts visibility to the Primary Owner (KO) (`primaryOwnerEmail == 'amdsolutionsqdn@gmail.com'`), the requesting user (`requestedByUid == request.auth.uid`), or the target candidate (`subKoEmail == request.auth.token.email`) with zero `get()`/`exists()` lookups.
+
+## 2. The "Dirty Dozen" Adversarial Payloads
+1. **Unauthenticated Read/Write**: `auth = null` attempting `get` or `create` on `/users/u1/entries/e1`, `/notifications/n1`, or `/subKoRequests/r1` -> `PERMISSION_DENIED`.
+2. **Unverified Email Spoof**: `auth = { uid: 'u1', token: { email: 'amdsolutionsqdn@gmail.com', email_verified: false } }` approving `/subKoRequests/r1` -> `PERMISSION_DENIED`.
+3. **Cross-Tenant PII Read**: `auth.uid = 'u2'` reading `/users/u1` or `/subKoRequests/r1` submitted by `u1` (when `u2` is not Primary Owner KO) -> `PERMISSION_DENIED`.
+4. **Identity Spoofing on Create**: `auth.uid = 'u1'` creating `/users/u1/entries/e1` with `ownerId: 'u2'`, `/notifications/n1` with `actorId: 'u2'`, or `/subKoRequests/r1` with `requestedByUid: 'u2'` -> `PERMISSION_DENIED`.
+5. **Shadow / Ghost Field Injection**: Creating `/users/u1` with `role: 'admin'`, `/notifications/n1` with `email: 'leak@example.com'`, or `/subKoRequests/r1` with `isApproved: true` -> `PERMISSION_DENIED`.
+6. **ID Poisoning**: Creating `/users/u1/entries/bad$id`, `/notifications/bad..id`, or `/subKoRequests/bad id` -> `PERMISSION_DENIED`.
+7. **Orphaned Write**: Creating any subcollection, notification, or Sub-KO request before `/users/{uid}` exists -> `PERMISSION_DENIED`.
+8. **State Shortcutting / Self-Approval**: Creating `/subKoRequests/r1` directly with `status: 'approved'`, OR a non-KO user updating `status` from `'pending'` to `'approved'`, OR updating an already `'approved'` terminal request -> `PERMISSION_DENIED`.
+9. **Client Timestamp Forgery**: Creating an entry, notification, or Sub-KO request with backdated `createdAt != request.time` -> `PERMISSION_DENIED`.
+10. **Value / Type Poisoning**: Negative `debit`, `remarks` > 300 chars, `summary` > 200 chars, or non-Gmail `subKoEmail: 'user@yahoo.com'` -> `PERMISSION_DENIED`.
+11. **Primary Owner Hijacking / Invalid Enum**: Attempting to create or update `/projectConfig/default` or `/subKoRequests/r1` with `primaryOwnerEmail: 'attacker@gmail.com'` -> `PERMISSION_DENIED`.
+12. **Unauthorized Cross-User Scraping / Deletion**: `auth.uid = 'u2'` listing `/users/u1/entries`, `/users`, or deleting another user's `/notifications/n1` or `/subKoRequests/r1` -> `PERMISSION_DENIED`.
