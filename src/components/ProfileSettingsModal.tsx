@@ -3,11 +3,13 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Database,
   LogIn,
   Mail,
   Settings,
   ShieldCheck,
   Sparkles,
+  Trash2,
   UserCircle,
   UserPlus,
   X,
@@ -15,6 +17,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { User } from 'firebase/auth';
+import firebaseConfig from '../../firebase-applet-config.json';
 import type { UseAppLockResult } from '../hooks/useAppLock';
 import { formatRelativeTime } from '../lib/firestoreNotifications';
 import { AppLockSettingsCard } from './AppLockSettingsCard';
@@ -48,6 +51,8 @@ interface ProfileSettingsModalProps {
   onReviewSubKoRequest: (requestId: string, decision: 'approved' | 'declined') => void;
   onCancelSubKoRequest: (requestId: string) => void;
   appLock: UseAppLockResult;
+  clearingDatabase?: boolean;
+  onRequestClearDatabase?: () => void;
   onStatusToast?: (message: string) => void;
 }
 
@@ -150,6 +155,8 @@ export function ProfileSettingsModal({
   onReviewSubKoRequest,
   onCancelSubKoRequest,
   appLock,
+  clearingDatabase = false,
+  onRequestClearDatabase,
   onStatusToast,
 }: ProfileSettingsModalProps) {
   const [activeTab, setActiveTab] = useState<ProfileModalTab>(initialTab);
@@ -587,6 +594,36 @@ export function ProfileSettingsModal({
                   </ul>
                 )}
               </section>
+
+              {onRequestClearDatabase && (
+                <section className="rounded-lg border border-red-200 bg-red-50/50 p-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-semibold text-red-900 flex items-center gap-1.5">
+                      <Database className="w-4 h-4 text-red-700 shrink-0" aria-hidden="true" />
+                      <span>Clear Database Data</span>
+                    </h3>
+                    <p className="mt-0.5 text-xs text-red-800/90 leading-relaxed">
+                      {user
+                        ? 'Permanently delete all your daily log entries, opening balance overrides, and authored notifications from Firestore.'
+                        : 'Clear all saved daily log entries and opening balance overrides from browser storage.'}
+                    </p>
+                    <p className="mt-1 text-[11px] font-mono text-red-700/80 break-all">
+                      DB: {firebaseConfig.firestoreDatabaseId}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    data-testid="delete-all-database-data-button"
+                    disabled={clearingDatabase}
+                    onClick={onRequestClearDatabase}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-red-700 hover:bg-red-800 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>{clearingDatabase ? 'Deleting...' : 'Delete All Data'}</span>
+                  </button>
+                </section>
+              )}
             </>
           )}
         </div>

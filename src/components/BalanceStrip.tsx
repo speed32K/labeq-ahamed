@@ -47,7 +47,7 @@ export function BalanceStrip({
     { key: 'fino', label: 'Fino Limit', closingVal: closing.fino, openVal: opening.fino },
     { key: 'airtel', label: 'Airtel Limit', closingVal: closing.airtel, openVal: opening.airtel },
     { key: 'bank', label: 'Cash In Bank', closingVal: closing.bank, openVal: opening.bank },
-    { key: 'credit', label: 'Credit', closingVal: closing.credit, openVal: opening.credit },
+    { key: 'credit', label: 'Not Paid', closingVal: closing.credit, openVal: opening.credit },
     {
       key: 'total',
       label: 'Total Net Balance',

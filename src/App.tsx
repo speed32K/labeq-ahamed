@@ -87,6 +87,7 @@ import {
   computeDayLedger,
   formatDisplayDate,
   formatNum,
+  getEntryAmount,
   getSortedDates,
   round2,
   shiftISO,
@@ -210,6 +211,7 @@ export default function App() {
     loadInitialSubKoRequests()
   );
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
+  const [clearingDatabase, setClearingDatabase] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [chartCollapsed, setChartCollapsed] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<ActivityNotificationItem[]>([]);
@@ -400,35 +402,6 @@ export default function App() {
           currentDeviceId,
           onSnapshotUpdate: (entriesByDate, openingOverrides, meta) => {
             if (cancelled || !meta.entriesLoaded || !meta.overridesLoaded) return;
-
-            const cloudHasEntries = Object.keys(entriesByDate).length > 0;
-            const cloudHasOverrides = Object.keys(openingOverrides).length > 0;
-
-            if (
-              !cloudHasEntries &&
-              !cloudHasOverrides &&
-              bootstrappedUidRef.current !== user.uid
-            ) {
-              bootstrappedUidRef.current = user.uid;
-              const localSnapshot = appStateRef.current;
-              const localHasData =
-                Object.keys(localSnapshot.entriesByDate).length > 0 ||
-                Object.keys(localSnapshot.openingOverrides).length > 0;
-
-              if (localHasData) {
-                void importLedgerStateToFirestore(
-                  user.uid,
-                  localSnapshot.entriesByDate,
-                  localSnapshot.openingOverrides,
-                  { entriesByDate: {}, openingOverrides: {}, initialized: true },
-                  'replace',
-                  currentDeviceId
-                ).catch((err) =>
-                  notifyCloudError(err, 'Could not sync initial entries to cloud.')
-                );
-                return;
-              }
-            }
 
             bootstrappedUidRef.current = user.uid;
             commitAppState({
@@ -765,31 +738,26 @@ export default function App() {
     [appState, selectedDate]
   );
 
-  const { dayDebit, dayCredit } = useMemo(() => {
-    let debit = 0;
-    let credit = 0;
+  const { dayTotalAmount, dailyAmountChartData } = useMemo(() => {
+    let total = 0;
+    const byGroup = new Map<string, number>();
     for (const row of dayLedger.rows) {
-      debit += row.debit || 0;
-      credit += row.credit || 0;
+      const amt = getEntryAmount(row);
+      total += amt;
+      byGroup.set(row.type, round2((byGroup.get(row.type) || 0) + amt));
     }
+    const points =
+      byGroup.size > 0
+        ? Array.from(byGroup.entries()).map(([group, amount]) => ({
+            label: group,
+            amount,
+          }))
+        : [{ label: formatDisplayDate(selectedDate), amount: 0 }];
     return {
-      dayDebit: round2(debit),
-      dayCredit: round2(credit),
+      dayTotalAmount: round2(total),
+      dailyAmountChartData: points,
     };
-  }, [dayLedger.rows]);
-
-  const dailyPerformanceChartData = useMemo(
-    () => [
-      {
-        date: formatDisplayDate(selectedDate),
-        dayDebit,
-        dayCredit,
-      },
-    ],
-    [selectedDate, dayDebit, dayCredit]
-  );
-
-  const dayNetFlow = round2(dayCredit - dayDebit);
+  }, [dayLedger.rows, selectedDate]);
 
   const visibleRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -874,10 +842,8 @@ export default function App() {
 
     commitAppState(result.state);
 
-    const amountParts: string[] = [];
-    if (result.entry.debit > 0) amountParts.push(`Dr ${formatNum(result.entry.debit)}`);
-    if (result.entry.credit > 0) amountParts.push(`Cr ${formatNum(result.entry.credit)}`);
-    const amountSuffix = amountParts.length > 0 ? ` (${amountParts.join(' / ')})` : '';
+    const entryAmount = getEntryAmount(result.entry);
+    const amountSuffix = entryAmount > 0 ? ` (${formatNum(entryAmount)})` : '';
 
     if (user) {
       const dayList = result.state.entriesByDate[result.entry.date] || [];
@@ -905,7 +871,9 @@ export default function App() {
     }
 
     const reductionNote = result.walletReduction?.applied
-      ? ` · ${result.walletReduction.accountLabel} -${formatNum(result.walletReduction.amount)} (Bal: ${formatNum(result.walletReduction.resultingBalance)})`
+      ? result.walletReduction.creditAccountLabel
+        ? ` · ${result.walletReduction.creditAccountLabel} +${formatNum(result.walletReduction.amount)} · ${result.walletReduction.accountLabel} -${formatNum(result.walletReduction.amount)}`
+        : ` · ${result.walletReduction.accountLabel} -${formatNum(result.walletReduction.amount)} (Bal: ${formatNum(result.walletReduction.resultingBalance)})`
       : '';
 
     if (payload.id) {
@@ -1070,27 +1038,52 @@ export default function App() {
 
   const handleRequestResetAll = () => {
     setConfirmDialog({
-      title: 'Reset all stored logs?',
+      title: 'Delete all database data?',
       message: user
-        ? 'This clears every saved daily log entry and opening balance override from your cloud account. Export to .xlsx first if you want a backup.'
-        : 'This clears every saved daily log entry and opening balance override from browser storage. Export to .xlsx first if you want a backup.',
-      confirmLabel: 'Clear All Data',
+        ? 'This permanently removes all daily log entries, opening balance overrides, and your authored activity notifications from the cloud database. Export to .xlsx first if you want a backup.'
+        : 'This permanently removes all saved daily log entries and opening balance overrides from browser storage. Export to .xlsx first if you want a backup.',
+      confirmLabel: 'Delete All Data',
       destructive: true,
       onConfirm: () => {
         const snapshotBeforeClear = appStateRef.current;
-        commitAppState({
+        const emptyState: AppState = {
           entriesByDate: {},
           openingOverrides: {},
+          customServices: {},
           initialized: true,
-        });
-        if (user) {
-          void clearAllLedgerDataInFirestore(user.uid, snapshotBeforeClear).catch((err) =>
-            notifyCloudError(err, 'Could not clear all cloud records.')
-          );
-          emitChangeNotification('ledger_cleared', 'Cleared all stored ledger entries', selectedDate);
-        }
+        };
+        commitAppState(emptyState);
         setEditingEntryId(null);
-        showToast('All stored logs cleared.');
+        setRemoteSyncEvents([]);
+        setRemoteSyncedEntryIds({});
+        setProfileModalOpen(false);
+
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(emptyState));
+          localStorage.removeItem(LAST_READ_STORAGE_KEY);
+          localStorage.removeItem(SUBKO_REQUESTS_STORAGE_KEY);
+        } catch {
+          // Ignore storage quota errors
+        }
+
+        if (user) {
+          setClearingDatabase(true);
+          void clearAllLedgerDataInFirestore(user.uid, snapshotBeforeClear, user.email)
+            .then((result) => {
+              setNotifications((prev) => prev.filter((item) => item.actorId !== user.uid));
+              showToast(
+                result.deletedCount > 0
+                  ? `Deleted ${result.deletedCount} record${result.deletedCount === 1 ? '' : 's'} from database.`
+                  : 'Database is already empty.'
+              );
+            })
+            .catch((err) => notifyCloudError(err, 'Could not clear all cloud records.'))
+            .finally(() => setClearingDatabase(false));
+        } else {
+          setNotifications([]);
+          setSubKoRequests([]);
+          showToast('All stored logs cleared.');
+        }
       },
     });
   };
@@ -1281,6 +1274,7 @@ export default function App() {
             <EntryComposer
               selectedDate={selectedDate}
               editingEntry={editingEntry}
+              entriesByDate={appState.entriesByDate}
               availableBalances={availableBalancesForComposer}
               savedDates={savedDates}
               customServicesByGroup={customServicesByGroup}
@@ -1313,33 +1307,16 @@ export default function App() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
                       <h2 className="text-xs font-semibold text-slate-900">
-                        Daily Debit vs Credit · {formatDisplayDate(selectedDate)}
+                        Daily Amount by Group · {formatDisplayDate(selectedDate)}
                       </h2>
                       <div className="flex flex-wrap items-center gap-4 text-[11px] font-mono tabular-nums">
-                        <span className="inline-flex items-center gap-1.5 text-slate-600">
-                          <span
-                            className="w-2.5 h-2.5 rounded-[2px] bg-[#dc2626]"
-                            aria-hidden="true"
-                          />
-                          <span className="font-sans">Debit:</span>
-                          <strong className="text-red-700">{formatNum(dayDebit)}</strong>
-                        </span>
                         <span className="inline-flex items-center gap-1.5 text-slate-600">
                           <span
                             className="w-2.5 h-2.5 rounded-[2px] bg-[#1f5e4b]"
                             aria-hidden="true"
                           />
-                          <span className="font-sans">Credit:</span>
-                          <strong className="text-emerald-700">{formatNum(dayCredit)}</strong>
-                        </span>
-                        <span className="inline-flex items-center gap-1.5 text-slate-600">
-                          <span className="font-sans">Net:</span>
-                          <strong
-                            className={dayNetFlow < 0 ? 'text-red-700' : 'text-slate-900'}
-                          >
-                            {dayNetFlow > 0 ? '+' : ''}
-                            {formatNum(dayNetFlow)}
-                          </strong>
+                          <span className="font-sans">Total Amount:</span>
+                          <strong className="text-slate-900">{formatNum(dayTotalAmount)}</strong>
                         </span>
                       </div>
                     </div>
@@ -1368,7 +1345,7 @@ export default function App() {
                     <div className="mt-3 h-[176px] w-full min-w-0">
                       <ResponsiveContainer width="100%" height="100%" minWidth={240}>
                         <BarChart
-                          data={dailyPerformanceChartData}
+                          data={dailyAmountChartData}
                           margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
                           barGap={24}
                         >
@@ -1378,15 +1355,13 @@ export default function App() {
                             vertical={false}
                           />
                           <XAxis
-                            dataKey="date"
+                            dataKey="label"
                             tick={{ fontSize: 11, fill: '#475569' }}
                             axisLine={{ stroke: '#cbd5e1' }}
                             tickLine={false}
                           />
                           <YAxis
-                            domain={
-                              dayDebit === 0 && dayCredit === 0 ? [0, 1000] : [0, 'auto']
-                            }
+                            domain={dayTotalAmount === 0 ? [0, 1000] : [0, 'auto']}
                             tickFormatter={(val: number) => {
                               const abs = Math.abs(val);
                               if (abs >= 100000) {
@@ -1422,19 +1397,11 @@ export default function App() {
                             iconSize={10}
                           />
                           <Bar
-                            dataKey="dayDebit"
-                            name="Debit (Dr)"
-                            fill="#dc2626"
-                            radius={[4, 4, 0, 0]}
-                            maxBarSize={88}
-                            isAnimationActive={false}
-                          />
-                          <Bar
-                            dataKey="dayCredit"
-                            name="Credit (Cr)"
+                            dataKey="amount"
+                            name="Amount"
                             fill="#1f5e4b"
                             radius={[4, 4, 0, 0]}
-                            maxBarSize={88}
+                            maxBarSize={72}
                             isAnimationActive={false}
                           />
                         </BarChart>
@@ -1480,6 +1447,8 @@ export default function App() {
         onReviewSubKoRequest={handleReviewSubKoRequest}
         onCancelSubKoRequest={handleCancelSubKoRequest}
         appLock={appLock}
+        clearingDatabase={clearingDatabase}
+        onRequestClearDatabase={handleRequestResetAll}
         onStatusToast={showToast}
       />
 

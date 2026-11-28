@@ -2,7 +2,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { getGroupTextClass } from '../data/groups';
 import type { RemoteEntrySyncKind } from '../lib/remoteSyncTrigger';
 import type { ComputedLedgerRow, RunningBalances } from '../types/ledger';
-import { formatExcelDate, formatNum } from '../utils/accounting';
+import { formatExcelDate, formatNum, getEntryAmount } from '../utils/accounting';
 
 interface LedgerTableProps {
   rows: ComputedLedgerRow[];
@@ -21,8 +21,7 @@ export function LedgerTable({
   onDeleteEntry,
   onFocusComposer,
 }: LedgerTableProps) {
-  const totalDebit = rows.reduce((sum, r) => sum + (r.debit || 0), 0);
-  const totalCredit = rows.reduce((sum, r) => sum + (r.credit || 0), 0);
+  const totalAmount = rows.reduce((sum, r) => sum + getEntryAmount(r), 0);
 
   return (
     <section
@@ -35,7 +34,7 @@ export function LedgerTable({
             OLDTRN Excel Ledger Sheet
           </h1>
           <p className="text-xs text-slate-500">
-            Exact 14-column schema (Columns A–N) matching previous logs.xlsx with running balances
+            13-column daily log schema (Columns A–M) with unified Amount column and running balances
           </p>
         </div>
         <button
@@ -80,8 +79,7 @@ export function LedgerTable({
                   <th className="py-2.5 px-2 text-left font-medium">Service Type</th>
                   <th className="py-2.5 px-2 text-left font-medium">Remarks</th>
                   <th className="py-2.5 px-2 text-left font-medium">Mode</th>
-                  <th className="py-2.5 px-2 text-right font-medium">Debit</th>
-                  <th className="py-2.5 px-2 text-right font-medium">Credit</th>
+                  <th className="py-2.5 px-2 text-right font-medium">Amount</th>
                   <th className="py-2.5 px-2 text-right font-medium">KO Limit</th>
                   <th className="py-2.5 px-2 text-right font-medium">Cash Hand</th>
                   <th className="py-2.5 px-2 text-right font-medium">Fino</th>
@@ -127,11 +125,8 @@ export function LedgerTable({
                         {r.remarks || '—'}
                       </td>
                     <td className="px-2 text-slate-700">{r.paymentMode || 'Cash'}</td>
-                    <td className="px-2 text-right font-mono tabular-nums text-red-700 font-medium">
-                      {r.debit > 0 ? formatNum(r.debit) : ''}
-                    </td>
-                    <td className="px-2 text-right font-mono tabular-nums text-emerald-700 font-medium">
-                      {r.credit > 0 ? formatNum(r.credit) : ''}
+                    <td className="px-2 text-right font-mono tabular-nums text-slate-900 font-semibold">
+                      {getEntryAmount(r) > 0 ? formatNum(getEntryAmount(r)) : ''}
                     </td>
                     <td className="px-2 text-right font-mono tabular-nums text-slate-800">
                       {formatNum(r.running.ko)}
@@ -183,11 +178,8 @@ export function LedgerTable({
                   <td colSpan={6} className="px-2 text-left text-xs text-slate-600">
                     Day Totals &amp; Closing Balances ({rows.length} entries)
                   </td>
-                  <td className="px-2 text-right font-mono tabular-nums text-red-700">
-                    {formatNum(totalDebit)}
-                  </td>
-                  <td className="px-2 text-right font-mono tabular-nums text-emerald-700">
-                    {formatNum(totalCredit)}
+                  <td className="px-2 text-right font-mono tabular-nums text-slate-900">
+                    {formatNum(totalAmount)}
                   </td>
                   <td className="px-2 text-right font-mono tabular-nums">
                     {formatNum(closing.ko)}

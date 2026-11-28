@@ -4,6 +4,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   query,
   serverTimestamp,
@@ -23,8 +24,10 @@ import type {
   PaymentMode,
 } from '../types/ledger';
 import { round2 } from '../utils/accounting';
+import { planAuthorizedPurgeTargets } from './databasePurge';
 import { db } from './firebase';
 import { handleFirestoreError, OperationType } from './firestoreErrors';
+import { isPrimaryOwnerEmail, PRIMARY_OWNER_KO_EMAIL } from './ownership';
 import {
   detectRemoteEntrySyncEvents,
   type FirestoreEntryDocChange,
@@ -478,7 +481,9 @@ type BatchAction =
   | { kind: 'setEntry'; entry: LogEntry; orderIndex: number }
   | { kind: 'deleteEntry'; id: string }
   | { kind: 'setOverride'; date: string; balances: BalanceSnapshot; exists: boolean }
-  | { kind: 'deleteOverride'; date: string };
+  | { kind: 'deleteOverride'; date: string }
+  | { kind: 'deleteNotification'; id: string }
+  | { kind: 'deleteSubKoRequest'; id: string };
 
 async function executeChunkedBatch(
   uid: string,
@@ -529,6 +534,10 @@ async function executeChunkedBatch(
         } else if (act.kind === 'deleteOverride') {
           if (!BLUEPRINT_LIMITS.DATE_PATTERN.test(act.date)) continue;
           batch.delete(doc(db, 'users', uid, 'openingOverrides', act.date));
+        } else if (act.kind === 'deleteNotification') {
+          batch.delete(doc(db, 'notifications', sanitizeId(act.id)));
+        } else if (act.kind === 'deleteSubKoRequest') {
+          batch.delete(doc(db, 'subKoRequests', sanitizeId(act.id)));
         }
       }
       await batch.commit();
@@ -538,23 +547,87 @@ async function executeChunkedBatch(
   }
 }
 
+export interface ClearDatabaseResult {
+  deletedCount: number;
+  entriesDeleted: number;
+  overridesDeleted: number;
+  notificationsDeleted: number;
+  subKoRequestsDeleted: number;
+}
+
 export async function clearAllLedgerDataInFirestore(
   uid: string,
-  state: AppState
-): Promise<void> {
-  const actions: BatchAction[] = [];
-  for (const list of Object.values(state.entriesByDate)) {
-    for (const entry of list) {
-      actions.push({ kind: 'deleteEntry', id: entry.id });
-    }
+  state: AppState,
+  userEmail?: string | null
+): Promise<ClearDatabaseResult> {
+  const isKO = isPrimaryOwnerEmail(userEmail);
+
+  const [entriesSnap, overridesSnap, notificationsRes, subKoRes] = await Promise.all([
+    getDocs(query(collection(db, 'users', uid, 'entries'), where('ownerId', '==', uid))),
+    getDocs(query(collection(db, 'users', uid, 'openingOverrides'), where('ownerId', '==', uid))),
+    getDocs(
+      query(collection(db, 'notifications'), where('audience', '==', 'all_logged_in'))
+    ).catch(() => null),
+    getDocs(
+      isKO
+        ? query(
+            collection(db, 'subKoRequests'),
+            where('primaryOwnerEmail', '==', PRIMARY_OWNER_KO_EMAIL)
+          )
+        : query(collection(db, 'subKoRequests'), where('requestedByUid', '==', uid))
+    ).catch(() => null),
+  ]);
+
+  const cloudEntries = entriesSnap.docs.map((d) => ({
+    id: d.id,
+    ownerId: String(d.data().ownerId || ''),
+  }));
+  const cloudOverrides = overridesSnap.docs.map((d) => ({
+    id: d.id,
+    ownerId: String(d.data().ownerId || ''),
+  }));
+  const cloudNotifications = notificationsRes
+    ? notificationsRes.docs.map((d) => ({
+        id: d.id,
+        actorId: String(d.data().actorId || ''),
+      }))
+    : [];
+  const cloudSubKoRequests = subKoRes
+    ? subKoRes.docs.map((d) => ({
+        id: d.id,
+        requestedByUid: String(d.data().requestedByUid || ''),
+        status: String(d.data().status || ''),
+      }))
+    : [];
+
+  const plan = planAuthorizedPurgeTargets({
+    uid,
+    email: userEmail,
+    cloudEntries,
+    cloudOverrides,
+    cloudNotifications,
+    cloudSubKoRequests,
+    localState: state,
+  });
+
+  const actions: BatchAction[] = [
+    ...plan.entryIds.map((id) => ({ kind: 'deleteEntry' as const, id })),
+    ...plan.overrideDates.map((date) => ({ kind: 'deleteOverride' as const, date })),
+    ...plan.notificationIds.map((id) => ({ kind: 'deleteNotification' as const, id })),
+    ...plan.subKoRequestIds.map((id) => ({ kind: 'deleteSubKoRequest' as const, id })),
+  ];
+
+  if (actions.length > 0) {
+    await executeChunkedBatch(uid, actions, `users/${uid}`);
   }
-  for (const date of Object.keys(state.openingOverrides)) {
-    if (BLUEPRINT_LIMITS.DATE_PATTERN.test(date)) {
-      actions.push({ kind: 'deleteOverride', date });
-    }
-  }
-  if (actions.length === 0) return;
-  await executeChunkedBatch(uid, actions, `users/${uid}`);
+
+  return {
+    deletedCount: plan.totalCount,
+    entriesDeleted: plan.entryIds.length,
+    overridesDeleted: plan.overrideDates.length,
+    notificationsDeleted: plan.notificationIds.length,
+    subKoRequestsDeleted: plan.subKoRequestIds.length,
+  };
 }
 
 export async function importLedgerStateToFirestore(

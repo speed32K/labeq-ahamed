@@ -433,7 +433,7 @@ service cloud.firestore {
         allow get: if isVerifiedOwner(userId)
           && isValidId(userId)
           && isValidId(entryId)
-          && existing().ownerId == request.auth.uid;
+          && (resource == null || existing().ownerId == request.auth.uid);
 
         // Secure List Query without get()/exists()
         allow list: if isVerifiedOwner(userId)
@@ -492,7 +492,7 @@ service cloud.firestore {
         allow get: if isVerifiedOwner(userId)
           && isValidId(userId)
           && isValidDateKey(dateKey)
-          && existing().ownerId == request.auth.uid;
+          && (resource == null || existing().ownerId == request.auth.uid);
 
         // Secure List Query without get()/exists()
         allow list: if isVerifiedOwner(userId)
@@ -541,7 +541,7 @@ service cloud.firestore {
         allow get: if isVerifiedOwner(userId)
           && isValidId(userId)
           && stateId == 'default'
-          && existing().ownerId == request.auth.uid;
+          && (resource == null || existing().ownerId == request.auth.uid);
 
         allow list: if false;
 

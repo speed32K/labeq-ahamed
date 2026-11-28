@@ -11,7 +11,7 @@ import {
 import { getGroupColor, getGroupTextClass, GROUP_ORDER } from '../data/groups';
 import type { RemoteEntrySyncKind } from '../lib/remoteSyncTrigger';
 import type { ComputedLedgerRow } from '../types/ledger';
-import { formatNum } from '../utils/accounting';
+import { formatNum, getEntryAmount } from '../utils/accounting';
 import { splitHighlightSegments } from '../utils/highlight';
 
 function HighlightedText({ text, query }: { text: string; query: string }) {
@@ -74,22 +74,18 @@ export function CanvasBoard({
   const canReorder = filterGroup === 'ALL' && searchQuery.trim() === '';
 
   // Day totals & per-group aggregates
-  let dayDebit = 0;
-  let dayCredit = 0;
-  const groupStats = new Map<string, { count: number; debit: number; credit: number }>();
+  let dayAmount = 0;
+  const groupStats = new Map<string, { count: number; amount: number }>();
 
   for (const r of allDayRows) {
-    dayDebit += r.debit || 0;
-    dayCredit += r.credit || 0;
-    const prev = groupStats.get(r.type) || { count: 0, debit: 0, credit: 0 };
+    const entryAmt = getEntryAmount(r);
+    dayAmount += entryAmt;
+    const prev = groupStats.get(r.type) || { count: 0, amount: 0 };
     groupStats.set(r.type, {
       count: prev.count + 1,
-      debit: prev.debit + (r.debit || 0),
-      credit: prev.credit + (r.credit || 0),
+      amount: prev.amount + entryAmt,
     });
   }
-
-  const dayNet = dayCredit - dayDebit;
 
   return (
     <section
@@ -109,33 +105,12 @@ export function CanvasBoard({
             </strong>
           </div>
           <div>
-            <span className="block text-[11px] text-slate-500">Day Debit (Dr)</span>
+            <span className="block text-[11px] text-slate-500">Total Amount</span>
             <strong
-              data-testid="day-total-debit"
-              className="text-sm font-semibold font-mono tabular-nums text-red-700"
+              data-testid="day-total-amount"
+              className="text-sm font-semibold font-mono tabular-nums text-slate-900"
             >
-              {formatNum(dayDebit)}
-            </strong>
-          </div>
-          <div>
-            <span className="block text-[11px] text-slate-500">Day Credit (Cr)</span>
-            <strong
-              data-testid="day-total-credit"
-              className="text-sm font-semibold font-mono tabular-nums text-emerald-700"
-            >
-              {formatNum(dayCredit)}
-            </strong>
-          </div>
-          <div>
-            <span className="block text-[11px] text-slate-500">Net Flow</span>
-            <strong
-              data-testid="day-net-flow"
-              className={`text-sm font-semibold font-mono tabular-nums ${
-                dayNet < 0 ? 'text-red-700' : 'text-slate-900'
-              }`}
-            >
-              {dayNet > 0 ? '+' : ''}
-              {formatNum(dayNet)}
+              {formatNum(dayAmount)}
             </strong>
           </div>
         </div>
@@ -192,14 +167,8 @@ export function CanvasBoard({
               <span aria-hidden="true" className="text-slate-300">
                 ·
               </span>
-              <span className="font-mono tabular-nums text-red-700">
-                Dr {formatNum(st.debit)}
-              </span>
-              <span aria-hidden="true" className="text-slate-300">
-                /
-              </span>
-              <span className="font-mono tabular-nums text-emerald-700">
-                Cr {formatNum(st.credit)}
+              <span className="font-mono tabular-nums text-slate-800">
+                {formatNum(st.amount)}
               </span>
             </button>
           ))}
@@ -395,20 +364,15 @@ export function CanvasBoard({
                     </p>
                   </div>
 
-                  {/* Debit / Credit Row (Hairline Dividers, Zero Nested Cards) */}
-                  <div className="grid grid-cols-2 divide-x divide-slate-200 border-y border-slate-100 py-2.5">
-                    <div className="pr-3">
-                      <span className="block text-[11px] text-slate-500">Debit (Dr)</span>
-                      <span className="mt-0.5 block text-sm font-semibold font-mono tabular-nums text-red-700">
-                        {row.debit > 0 ? formatNum(row.debit) : '—'}
-                      </span>
-                    </div>
-                    <div className="pl-3">
-                      <span className="block text-[11px] text-slate-500">Credit (Cr)</span>
-                      <span className="mt-0.5 block text-sm font-semibold font-mono tabular-nums text-emerald-700">
-                        {row.credit > 0 ? formatNum(row.credit) : '—'}
-                      </span>
-                    </div>
+                  {/* Unified Amount Row */}
+                  <div className="flex items-center justify-between border-y border-slate-100 py-2.5">
+                    <span className="text-[11px] font-medium text-slate-500">Amount</span>
+                    <span
+                      data-testid="card-amount"
+                      className="text-sm font-semibold font-mono tabular-nums text-slate-900"
+                    >
+                      {getEntryAmount(row) > 0 ? formatNum(getEntryAmount(row)) : '—'}
+                    </span>
                   </div>
 
                   {/* 6-Account Running Balances Snapshot (2x3 on small mobile, 3x2 on sm+) */}

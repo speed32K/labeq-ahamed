@@ -1,9 +1,11 @@
 import * as XLSX from 'xlsx';
 import type { AppState, BalanceSnapshot, LogEntry } from '../types/ledger';
 import {
+  classifyEntryAmount,
   computeAutoDeltas,
   computeDayLedger,
   formatExcelDate,
+  getEntryAmount,
   getSortedDates,
   parseExcelMixedDate,
   parseNumOrNull,
@@ -16,8 +18,7 @@ export const OLDTRN_HEADERS = [
   'Service Type',
   'Remarks',
   'Payment Mode',
-  'Debit',
-  'Credit',
+  'Amount',
   'KO Limit',
   'Cash In Hand',
   'Fino Limit',
@@ -39,21 +40,21 @@ export function buildLedgerWorkbook(
   for (const d of datesToExport) {
     const { rows } = computeDayLedger(state, d);
     for (const r of rows) {
+      const amount = getEntryAmount(r);
       aoa.push([
         formatExcelDate(r.date),
         r.type === 'AIRTEL CSP' ? 'AIRTEL' : r.type,
         r.serviceType,
         r.remarks || '',
         r.paymentMode || 'Cash',
-        r.debit || null,
-        r.credit || null,
+        amount || null,
         r.running.ko,
         r.running.cash,
         r.running.fino,
         r.running.airtel,
         r.running.bank,
         r.running.credit,
-        { t: 'n', v: r.running.total, f: `SUM(H${excelRowNum}:M${excelRowNum})` },
+        { t: 'n', v: r.running.total, f: `SUM(G${excelRowNum}:L${excelRowNum})` },
       ]);
       excelRowNum++;
     }
@@ -66,8 +67,7 @@ export function buildLedgerWorkbook(
     { wch: 28 },
     { wch: 24 },
     { wch: 13 },
-    { wch: 12 },
-    { wch: 12 },
+    { wch: 13 },
     { wch: 13 },
     { wch: 13 },
     { wch: 12 },
@@ -81,7 +81,7 @@ export function buildLedgerWorkbook(
   if (ref) {
     const range = XLSX.utils.decode_range(ref);
     for (let R = 1; R <= range.e.r; R++) {
-      for (let C = 5; C <= 13; C++) {
+      for (let C = 5; C <= 12; C++) {
         const addr = XLSX.utils.encode_cell({ r: R, c: C });
         if (ws[addr] && typeof ws[addr].v === 'number') {
           ws[addr].z = '#,##0.00';
@@ -127,6 +127,11 @@ export function parseWorkbookToImport(
     raw: true,
   });
 
+  const headerRow = rows[0] || [];
+  const col5Header = String(headerRow[5] ?? '').trim().toLowerCase();
+  const isUnifiedAmountSchema = col5Header === 'amount';
+  const balStartCol = isUnifiedAmountSchema ? 6 : 7;
+
   const entriesByDate: Record<string, LogEntry[]> = {};
   const openingOverrides: Record<string, BalanceSnapshot> = {};
 
@@ -136,7 +141,7 @@ export function parseWorkbookToImport(
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    if (!row || (!row[1] && !row[2] && !row[5] && !row[6])) continue;
+    if (!row || (!row[1] && !row[2] && !row[5] && (isUnifiedAmountSchema || !row[6]))) continue;
 
     const isoDate = parseExcelMixedDate(row[0], lastValidDate, (serial) => {
       const parsed = XLSX.SSF.parse_date_code(serial);
@@ -150,16 +155,26 @@ export function parseWorkbookToImport(
     const serviceType = String(row[2] ?? '').trim();
     const remarks = String(row[3] ?? '').trim();
     const paymentMode = String(row[4] ?? 'Cash').trim() || 'Cash';
-    const debit = round2(parseFloat(String(row[5] ?? 0)) || 0);
-    const credit = round2(parseFloat(String(row[6] ?? 0)) || 0);
+
+    let debit = 0;
+    let credit = 0;
+    if (isUnifiedAmountSchema) {
+      const amount = round2(parseFloat(String(row[5] ?? 0)) || 0);
+      const classified = classifyEntryAmount(rawType, serviceType, amount);
+      debit = classified.debit;
+      credit = classified.credit;
+    } else {
+      debit = round2(parseFloat(String(row[5] ?? 0)) || 0);
+      credit = round2(parseFloat(String(row[6] ?? 0)) || 0);
+    }
 
     const rowBal = {
-      ko: parseNumOrNull(row[7]),
-      cash: parseNumOrNull(row[8]),
-      fino: parseNumOrNull(row[9]),
-      airtel: parseNumOrNull(row[10]),
-      bank: parseNumOrNull(row[11]),
-      credit: parseNumOrNull(row[12]),
+      ko: parseNumOrNull(row[balStartCol]),
+      cash: parseNumOrNull(row[balStartCol + 1]),
+      fino: parseNumOrNull(row[balStartCol + 2]),
+      airtel: parseNumOrNull(row[balStartCol + 3]),
+      bank: parseNumOrNull(row[balStartCol + 4]),
+      credit: parseNumOrNull(row[balStartCol + 5]),
     };
 
     const hasSheetBalances = Object.values(rowBal).some((v) => v !== null);

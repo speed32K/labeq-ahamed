@@ -44,10 +44,14 @@ test('Exported OLDTRN workbook preserves headers, formulas, AIRTEL mapping, and 
 
   const sheet = workbook.Sheets['OLDTRN'];
   const headerRow = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 })[0];
-  assert.deepEqual(headerRow, [...OLDTRN_HEADERS]);
+  const headerNames: string[] = headerRow.map(String);
+  assert.equal(headerNames.includes('Amount'), true);
+  assert.equal(headerNames.includes('Debit'), false);
+  assert.deepEqual(headerNames, [...OLDTRN_HEADERS]);
   assert.equal(sheet['B2'].v, 'AIRTEL');
-  assert.equal(sheet['N2'].f, 'SUM(H2:M2)');
-  assert.equal(sheet['N3'].f, 'SUM(H3:M3)');
+  assert.equal(sheet['F2'].v, 1500);
+  assert.equal(sheet['M2'].f, 'SUM(G2:L2)');
+  assert.equal(sheet['M3'].f, 'SUM(G3:L3)');
 
   const buffer = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }) as Uint8Array;
   const imported = parseWorkbookToImport(buffer, '2026-11-25');
@@ -63,4 +67,36 @@ test('Exported OLDTRN workbook preserves headers, formulas, AIRTEL mapping, and 
   const importedLedger = computeDayLedger(rehydrated, '2026-11-25');
 
   assert.deepEqual(importedLedger.closing, originalLedger.closing);
+});
+
+test('Legacy 14-column Debit/Credit workbooks still import cleanly for backward compatibility', () => {
+  const legacyAoa = [
+    [
+      'Date',
+      'Type',
+      'Service Type',
+      'Remarks',
+      'Payment Mode',
+      'Debit',
+      'Credit',
+      'KO Limit',
+      'Cash In Hand',
+      'Fino Limit',
+      'Airtel Limit',
+      'Cash In Bank',
+      'Credit',
+      'Total',
+    ],
+    ['11/25/2026', 'SBI CSP', 'MONEY TRANSFER', 'Legacy row', 'Cash', 0, 2000, 48000, 12000, 0, 0, 0, 0, 60000],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(legacyAoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'OLDTRN');
+  const buffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as Uint8Array;
+
+  const imported = parseWorkbookToImport(buffer, '2026-11-25');
+  assert.equal(imported.importedCount, 1);
+  assert.equal(imported.entriesByDate['2026-11-25'][0].credit, 2000);
+  assert.equal(imported.openingOverrides['2026-11-25'].ko, 50000);
+  assert.equal(imported.openingOverrides['2026-11-25'].cash, 10000);
 });

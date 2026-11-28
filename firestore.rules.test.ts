@@ -200,6 +200,18 @@ test('firestore.rules contains all Eight Pillars structural guards including not
   assert.match(RULES_TEXT, /parentUserExists\(request\.auth\.uid\)/);
   assert.match(RULES_TEXT, /incoming\(\)\.createdAt == request\.time/);
   assert.match(RULES_TEXT, /incoming\(\)\.updatedAt == request\.time/);
+  assert.match(
+    RULES_TEXT,
+    /match \/notificationState\/\{stateId\}[\s\S]*?allow get:\s*if isVerifiedOwner\(userId\)[\s\S]*?\(resource == null \|\| existing\(\)\.ownerId == request\.auth\.uid\);/
+  );
+  assert.match(
+    RULES_TEXT,
+    /match \/openingOverrides\/\{dateKey\}[\s\S]*?allow get:\s*if isVerifiedOwner\(userId\)[\s\S]*?\(resource == null \|\| existing\(\)\.ownerId == request\.auth\.uid\);/
+  );
+  assert.match(
+    RULES_TEXT,
+    /match \/entries\/\{entryId\}[\s\S]*?allow get:\s*if isVerifiedOwner\(userId\)[\s\S]*?\(resource == null \|\| existing\(\)\.ownerId == request\.auth\.uid\);/
+  );
 });
 
 test('Dirty Dozen adversarial payloads all return PERMISSION_DENIED for entries & notifications', () => {

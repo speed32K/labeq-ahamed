@@ -41,11 +41,128 @@ export interface AutoDeltaInput {
   credit: number;
 }
 
+export const SBI_CSP_CASH_WITHDRAWAL_SERVICES = [
+  'AEPS WITHDRAWAL',
+  'ATM OFFUS WITHDRAWAL',
+  'ATM ONUS WITHDRAWAL',
+] as const;
+
+export const KO_LIMIT_DEPOSIT_TRANSFER_SERVICES = [
+  'INITIAL DEPOSIT',
+  'LOAN DEPOSIT',
+  'MONEY TRANSFER',
+  'AEPS DEPOSIT',
+  'ATM DEPOSIT',
+] as const;
+
+export const KO_LIMIT_APPLICABLE_GROUPS = [
+  'SBI CSP',
+  'AIRTEL CSP',
+  'AIRTEL',
+  'INSTANTPAY',
+  'FINO',
+] as const;
+
+/**
+ * Returns true if the service is one of the 5 deposit/transfer payment types
+ * that decrease KO Limit and credit the payment-mode settlement account.
+ */
+export function isKoLimitDepositTransferService(serviceType: string): boolean {
+  const normalized = (serviceType || '').trim().toUpperCase();
+  return (KO_LIMIT_DEPOSIT_TRANSFER_SERVICES as readonly string[]).includes(normalized);
+}
+
+/**
+ * Returns true when a transaction belongs to SBI CSP, Airtel, InstantPay, or Fino
+ * and uses one of the 5 KO Limit deposit/transfer payment types.
+ */
+export function isKoLimitDepositTransferTransaction(group: string, serviceType: string): boolean {
+  const normalizedGroup = (group || '').trim().toUpperCase();
+  return (
+    (KO_LIMIT_APPLICABLE_GROUPS as readonly string[]).includes(normalizedGroup) &&
+    isKoLimitDepositTransferService(serviceType)
+  );
+}
+
+/**
+ * Extracts the unified positive transaction Amount from an entry that stores internal debit/credit fields.
+ */
+export function getEntryAmount(entry: { debit?: number; credit?: number }): number {
+  const d = round2(entry.debit || 0);
+  const c = round2(entry.credit || 0);
+  return d > 0 ? d : c;
+}
+
+/**
+ * Maps a single unified Amount input into internal { debit, credit } values
+ * based on business group and service type so all accounting rules and persistence stay accurate.
+ */
+export function classifyEntryAmount(
+  group: string,
+  serviceType: string,
+  amount: number
+): { debit: number; credit: number } {
+  const amt = round2(amount || 0);
+  if (amt <= 0) return { debit: 0, credit: 0 };
+
+  const g = (group || '').trim().toUpperCase();
+  const svc = (serviceType || '').trim().toUpperCase();
+
+  if (isWithdrawalService(svc)) {
+    return { debit: amt, credit: 0 };
+  }
+  if (isKoLimitDepositTransferTransaction(g, svc)) {
+    return { debit: 0, credit: amt };
+  }
+  if (g === 'EXPENSE') {
+    return { debit: amt, credit: 0 };
+  }
+  if (g === 'AIRTEL CSP' || g === 'AIRTEL') {
+    if (svc.includes('MOBILE RECHARGE') || svc.includes('ELECTRICITY BILL')) {
+      return { debit: amt, credit: 0 };
+    }
+    return { debit: 0, credit: amt };
+  }
+  if (g === 'FINO') {
+    return { debit: 0, credit: amt };
+  }
+  if (
+    svc.includes('PAYMENT') ||
+    svc.includes('EXPENSE') ||
+    svc.includes('ADVANCE') ||
+    svc.includes('CASH TO BANK') ||
+    svc.includes('DEPOSIT TO KO LIMIT') ||
+    svc.includes('DEDECT BY MANIPAL') ||
+    svc.includes('MANIPAL KO REDUCTION') ||
+    svc.includes('PROFIT SHARE') ||
+    svc.includes('RETURN') ||
+    svc.includes('CHARGES')
+  ) {
+    return { debit: amt, credit: 0 };
+  }
+  return { debit: 0, credit: amt };
+}
+
 /**
  * Returns true for any withdrawal transaction (AEPS Withdrawal, ATM Withdrawal, Self Withdrawal, etc.).
  */
 export function isWithdrawalService(serviceType: string): boolean {
   return /\bWITHDRAW(?:AL|S)?\b/i.test((serviceType || '').trim());
+}
+
+/**
+ * Returns true for SBI CSP cash withdrawal transactions (AEPS WITHDRAWAL,
+ * ATM OFFUS WITHDRAWAL, ATM ONUS WITHDRAWAL), where physical cash is disbursed
+ * from Cash In Hand (-amount) and SBI credits the equivalent amount to KO Limit (+amount).
+ */
+export function isSbiCspCashWithdrawal(group: string, serviceType: string): boolean {
+  const normalizedGroup = (group || '').trim().toUpperCase();
+  if (normalizedGroup !== 'SBI CSP') return false;
+  const normalizedService = (serviceType || '').trim().toUpperCase();
+  return (
+    (SBI_CSP_CASH_WITHDRAWAL_SERVICES as readonly string[]).includes(normalizedService) ||
+    isWithdrawalService(normalizedService)
+  );
 }
 
 /**
@@ -72,11 +189,16 @@ export interface WithdrawalReductionCalculation {
   accountKey: keyof BalanceSnapshot;
   accountLabel: string;
   reductionAmount: number;
+  creditAccountKey?: keyof BalanceSnapshot;
+  creditAccountLabel?: string;
   deltas: BalanceSnapshot;
 }
 
 /**
- * Calculates the wallet balance reduction delta for an AEPS Withdrawal or similar withdrawal service.
+ * Calculates balance deltas for withdrawal transactions.
+ * - For SBI CSP cash withdrawals (AEPS WITHDRAWAL, ATM OFFUS WITHDRAWAL, ATM ONUS WITHDRAWAL):
+ *   KO Limit increases by +amount and Cash In Hand decreases by -amount.
+ * - For other business groups, deducts the withdrawal amount from that group's primary balance.
  */
 export function calculateWithdrawalReduction(
   group: string,
@@ -84,12 +206,29 @@ export function calculateWithdrawalReduction(
   amount: number,
   paymentMode = 'Cash'
 ): WithdrawalReductionCalculation {
-  const { key, label } = getGroupBalanceAccount(group, paymentMode);
+  const sbiCashWithdrawal = isSbiCspCashWithdrawal(group, serviceType);
+  const { key, label } = sbiCashWithdrawal
+    ? { key: 'cash' as const, label: 'Cash In Hand' }
+    : getGroupBalanceAccount(group, paymentMode);
   const deltas = emptyBalances();
-  const withdrawal = isWithdrawalService(serviceType);
+  const withdrawal = sbiCashWithdrawal || isWithdrawalService(serviceType);
   const amt = round2(amount || 0);
 
   if (withdrawal && amt > 0) {
+    if (sbiCashWithdrawal) {
+      deltas.ko = round2(amt);
+      deltas.cash = round2(-amt);
+      return {
+        isWithdrawal: true,
+        accountKey: 'cash',
+        accountLabel: 'Cash In Hand',
+        reductionAmount: amt,
+        creditAccountKey: 'ko',
+        creditAccountLabel: 'KO Limit',
+        deltas,
+      };
+    }
+
     deltas[key] = round2(-amt);
     return {
       isWithdrawal: true,
@@ -105,6 +244,7 @@ export function calculateWithdrawalReduction(
     accountKey: key,
     accountLabel: label,
     reductionAmount: 0,
+    ...(sbiCashWithdrawal ? { creditAccountKey: 'ko' as const, creditAccountLabel: 'KO Limit' } : {}),
     deltas,
   };
 }
@@ -119,7 +259,9 @@ export interface WithdrawalValidationResult {
 }
 
 /**
- * Validates that the selected group has sufficient balance before deducting a withdrawal amount.
+ * Validates that the disbursed balance account has sufficient funds before applying a withdrawal.
+ * For SBI CSP cash withdrawals, validates Cash In Hand because physical cash is paid to the customer
+ * while KO Limit increases by the same amount.
  */
 export function validateWithdrawalBalance(
   currentBalances: BalanceSnapshot,
@@ -128,11 +270,14 @@ export function validateWithdrawalBalance(
   amount: number,
   paymentMode = 'Cash'
 ): WithdrawalValidationResult {
-  const { key, label } = getGroupBalanceAccount(group, paymentMode);
+  const sbiCashWithdrawal = isSbiCspCashWithdrawal(group, serviceType);
+  const { key, label } = sbiCashWithdrawal
+    ? { key: 'cash' as const, label: 'Cash In Hand' }
+    : getGroupBalanceAccount(group, paymentMode);
   const available = round2(currentBalances[key] || 0);
   const amt = round2(amount || 0);
 
-  if (!isWithdrawalService(serviceType)) {
+  if (!sbiCashWithdrawal && !isWithdrawalService(serviceType)) {
     return {
       valid: true,
       accountKey: key,
@@ -181,6 +326,10 @@ export interface WalletReductionSummary {
   amount: number;
   previousBalance: number;
   resultingBalance: number;
+  creditAccountKey?: keyof BalanceSnapshot;
+  creditAccountLabel?: string;
+  creditPreviousBalance?: number;
+  creditResultingBalance?: number;
 }
 
 export type AtomicLedgerUpdateResult =
@@ -202,9 +351,9 @@ export type AtomicLedgerUpdateResult =
     };
 
 /**
- * Atomically calculates, validates, and applies a ledger entry update—including automatic
- * wallet balance reductions (KO Limit, Airtel Limit, Fino Limit, Cash/Bank) for AEPS
- * withdrawals and similar withdrawal services. Leaves the input state untouched on failure.
+ * Atomically calculates, validates, and applies a ledger entry update—including SBI CSP
+ * withdrawal settlement (+KO Limit, -Cash In Hand) and automatic wallet balance reductions
+ * for other withdrawal services. Leaves the input state untouched on failure.
  */
 export function applyEntryToLedgerAtomically(
   state: AppState,
@@ -268,6 +417,12 @@ export function applyEntryToLedgerAtomically(
       payload.paymentMode
     );
     appliedDeltas = reduction.deltas;
+    const creditKey = reduction.creditAccountKey;
+    const creditPreviousBalance = creditKey ? round2(availableBalances[creditKey] || 0) : undefined;
+    const creditResultingBalance =
+      creditKey && creditPreviousBalance !== undefined
+        ? round2(creditPreviousBalance + reduction.reductionAmount)
+        : undefined;
     walletReduction = {
       applied: true,
       accountKey: reduction.accountKey,
@@ -275,6 +430,14 @@ export function applyEntryToLedgerAtomically(
       amount: reduction.reductionAmount,
       previousBalance: validation.availableBalance,
       resultingBalance: validation.resultingBalance,
+      ...(creditKey && reduction.creditAccountLabel
+        ? {
+            creditAccountKey: creditKey,
+            creditAccountLabel: reduction.creditAccountLabel,
+            creditPreviousBalance,
+            creditResultingBalance,
+          }
+        : {}),
     };
   } else {
     appliedDeltas = payload.customDeltas
@@ -341,14 +504,36 @@ export function computeAutoDeltas({
   const svc = (serviceType || '').trim().toUpperCase();
   const mode = (paymentMode || 'Cash').trim().toUpperCase();
   const isOnline = mode === 'ONLINE';
+  const isNotPaidCredit =
+    mode === 'CREDIT' || mode === 'NOT PAID' || mode === 'NOT PAID (CREDIT)';
 
   const deltas = emptyBalances();
 
   // Unified Withdrawal Rule:
-  // AEPS Withdrawal and any other withdrawal deducts the transaction amount from the selected group's balance.
+  // SBI CSP withdrawals credit KO Limit (+amt) and debit Cash In Hand (-amt);
+  // other group withdrawals deduct from their respective group balance.
   if (isWithdrawalService(svc)) {
     const withdrawalAmt = d > 0 ? d : c;
     return calculateWithdrawalReduction(type, svc, withdrawalAmt, paymentMode).deltas;
+  }
+
+  // Unified KO Limit Deposit & Transfer Rule (SBI CSP, Airtel, InstantPay, Fino):
+  // INITIAL DEPOSIT, LOAN DEPOSIT, MONEY TRANSFER, AEPS DEPOSIT, ATM DEPOSIT
+  // decrease KO Limit (-amt) and increase Cash In Hand (Cash), Cash In Bank (Online),
+  // or Not Paid / Credit (CREDIT) by +amt.
+  if (isKoLimitDepositTransferTransaction(type, svc)) {
+    const amt = c > 0 ? c : d;
+    if (amt > 0) {
+      deltas.ko = round2(-amt);
+      if (isOnline) {
+        deltas.bank = round2(amt);
+      } else if (isNotPaidCredit) {
+        deltas.credit = round2(amt);
+      } else {
+        deltas.cash = round2(amt);
+      }
+    }
+    return deltas;
   }
 
   // 1. SBI CSP (non-withdrawal services)
@@ -391,9 +576,12 @@ export function computeAutoDeltas({
   // 2. AIRTEL CSP / AIRTEL
   if (type === 'AIRTEL CSP' || type === 'AIRTEL') {
     if (svc.includes('MOBILE RECHARGE') || svc.includes('ELECTRICITY BILL')) {
-      deltas.airtel = round2(-d);
-      if (isOnline) deltas.bank = round2(c);
-      else deltas.cash = round2(c);
+      const outAmt = d > 0 ? d : c;
+      const inAmt = c > 0 ? c : d;
+      deltas.airtel = round2(-outAmt);
+      if (isOnline) deltas.bank = round2(inAmt);
+      else if (isNotPaidCredit) deltas.credit = round2(inAmt);
+      else deltas.cash = round2(inAmt);
     } else if (svc.includes('COMMISION') || svc.includes('COMMISSION')) {
       if (isOnline) deltas.airtel = round2(c);
       else deltas.cash = round2(c);
@@ -671,7 +859,7 @@ export function describeDeltas(deltas: BalanceSnapshot): string[] {
     ['fino', 'Fino Limit'],
     ['airtel', 'Airtel Limit'],
     ['bank', 'Cash In Bank'],
-    ['credit', 'Credit'],
+    ['credit', 'Not Paid (Credit)'],
   ];
 
   const parts: string[] = [];
